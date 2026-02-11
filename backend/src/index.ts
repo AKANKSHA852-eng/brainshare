@@ -1,0 +1,309 @@
+import dotenv from "dotenv";
+dotenv.config();
+
+import express from "express";
+import { userMiddleware } from "./middlewares/userMiddleware";
+import { UserModel, ContentModel, LinkModel } from "./models/schema";
+
+import { connectDb } from "./utils/db";
+import crypto from "crypto";
+
+
+import { Request, Response } from 'express';
+import { z } from 'zod'; 
+import bcrypt from 'bcrypt';
+import jwt from "jsonwebtoken";
+
+import cors from 'cors';
+
+// Define allowed origins for CORS
+const allowedOrigins = [
+    'http://localhost:5173', // local frontend
+    'https://second-brain-alpha-olive.vercel.app', // deployed frontend
+    'https://your-frontend-url.vercel.app', // deployed frontend (example)
+    // Add more allowed origins as needed
+];
+
+interface AuthRequest extends Request {
+    userId?: string; 
+  }
+
+         
+
+
+const app = express();
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Allow all Vercel domains
+    if (origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now, you can restrict later
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+
+// Handle preflight requests
+app.options('*', cors());
+
+app.get("/health", (req: Request, res: Response) => {
+    res.json({ message: "Brainly API is running" });
+});
+
+
+
+app.post("/api/v1/signup", async (req: Request, res: Response): Promise<void> => {
+
+  const requireBody = z.object({
+    email: z.string().email(),
+    password: z.string().min(6),
+    name: z.string().min(2),
+  });
+
+  const parsed = requireBody.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      message: "Invalid input",
+      error: parsed.error,
+    });
+    return;
+  }
+
+  const { email, password, name } = parsed.data; // ✅ FIX
+
+  try {
+    const existingUser = await UserModel.findOne({ email });
+
+    if (existingUser) {
+      res.status(400).json({
+        message: "User already exists. Please sign in.",
+      });
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await UserModel.create({
+      email,
+      password: hashedPassword,
+      name,
+    });
+
+    res.status(201).json({
+      message: "User created successfully",
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+      },
+    });
+
+  } catch (e) {
+    console.error("Signup error:", e); // 🔥 VERY IMPORTANT
+    res.status(500).json({
+      message: "Error creating user",
+    });
+  }
+});
+
+
+
+
+
+app.post("/api/v1/signin", async (req: Request, res: Response): Promise<void> => {
+    const requireBody = z.object({
+        email: z.string().email(),
+        password: z.string().min(6),
+    });
+
+    const parseDataWithSuccess = requireBody.safeParse(req.body);
+
+    if(!parseDataWithSuccess.success) {
+        res.status(400).json({
+            message: "Invalid input",
+        });
+        return;
+    }
+
+    const {email, password} = req.body;
+
+    try {
+        const user = await UserModel.findOne({ email });
+
+        if(!user) {
+            res.status(400).json({
+                message: "User not found. Please sign up.",
+            });
+            return;
+        }
+
+        const passwordMatch = await bcrypt.compare(password, user.password);
+
+        if (!passwordMatch) {
+            res.status(400).json({
+                message: "Invalid credentials",
+            });
+            return;
+        }
+
+        const token = jwt.sign({
+            id: user._id
+        }, process.env.JWT_SECRET as string, { expiresIn: "7d" });
+
+        res.status(200).json({
+            token,
+            user: { id: user._id, email: user.email, name: user.name },
+            message: "Signed in successfully",
+        });
+    } catch (e) {
+        console.error("🔥 SIGNUP ERROR FULL 👉", e);
+  res.status(500).json({
+    message: "Error creating user",
+    error: String(e),
+        });
+    }
+});
+
+
+app.post("/api/v1/content", userMiddleware, async (req: AuthRequest, res:Response) => {
+    const link = req.body.link;
+    const type = req.body.type;
+    await ContentModel.create({
+        link,
+        type,
+        title: req.body.title,
+        userId: req.userId,
+        tags: []
+    })
+
+     res.json({
+        message: "Content added"
+    })
+
+})
+
+app.get("/api/v1/content", userMiddleware, async (req: AuthRequest, res: Response) => {
+    const userId = req.userId;
+    const content = await ContentModel.find({
+        userId: userId
+    }).populate("userId", "name email");
+
+    res.json({
+        content
+    })
+})
+
+app.delete("/api/v1/content", userMiddleware, async (req: AuthRequest, res: Response) => {
+    const contentId = req.body.contentId;
+
+    await ContentModel.deleteMany({
+       _id: contentId,
+        userId: req.userId
+    }) 
+
+    res.json({
+        message: "Message as been Deleted",
+    })
+})
+
+
+
+app.post("/api/v1/brain/share",  userMiddleware, async (req: AuthRequest, res: Response) => {
+    const share = req.body.share;
+    
+    try {
+        if(share) {
+            const existingLink = await LinkModel.findOne({
+                userId: req.userId
+            });
+
+            if(existingLink) {
+                res.json({
+                    hash: existingLink.hash
+                });
+                return;
+            }
+
+            const hash = crypto.randomBytes(10).toString("hex");
+            await LinkModel.create({
+                userId: req.userId,
+                hash: hash
+            });
+
+            res.json({
+                hash: hash
+            });
+        } else {
+            await LinkModel.deleteOne({
+                userId: req.userId,
+            });
+
+            res.json({
+                message: "Share link removed"
+            });
+        }
+    } catch(e) {
+        res.status(500).json({
+            message: "Error creating share link"
+        });
+    }
+})
+
+app.get("/api/v1/brain/:shareLink", async (req, res) => {
+    const hash = req.params.shareLink;
+
+   const link =  await LinkModel.findOne({
+        hash
+    });
+
+    if (!link) {
+        res.status(411).json({
+         message: "Sorry incorrect input"
+        })
+        return;
+    }
+
+    const content = await ContentModel.find({
+        userId: link.userId
+    })
+
+const user = await UserModel.findOne({
+    _id: link.userId
+})
+
+if(!user) {
+    res.status(411).json({
+        message: "User not found"
+       })
+       return;
+}
+
+
+    res.json({
+      name: user.name,
+      email: user.email,
+      content: content
+    })
+
+})
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log("Server is running on port 3000");
+    connectDb();
+});
