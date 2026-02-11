@@ -3,7 +3,7 @@
 Brainly is a *Second Brain* app that helps users collect and organize content from various sources like *Twitter, YouTube, Google Docs*, and more—all in one centralized place.  
 This project is part of *100xDevs Cohort 3, built under the guidance of **Harkirat Singh*.
 
-🚀 *Live Demo*: [Brainly App](https://brainly-liart.vercel.app/)  
+🚀 *Live Demo*: [Brainly App](https://brainshare-one.vercel.app/)  
 💪 *GitHub Repository*: [Brainly on GitHub](https://github.com/AKANKSHA852-eng/brainshare)  
 
 ---
