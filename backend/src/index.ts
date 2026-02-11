@@ -19,7 +19,7 @@ import cors from 'cors';
 // Define allowed origins for CORS
 const allowedOrigins = [
     'http://localhost:5173', // local frontend
-    'https://second-brain-alpha-olive.vercel.app', // deployed frontend
+    'https://brainshare-one.vercel.app', // deployed frontend
     'https://your-frontend-url.vercel.app', // deployed frontend (example)
     // Add more allowed origins as needed
 ];
